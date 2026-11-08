@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0f172a">
+<title>Signature</title>
+<style>
+  :root{--bg:#f8fafc;--card:#fff;--ink:#0f172a;--muted:#64748b;--line:#e2e8f0;--acc:#0369a1;--acc2:#e0f2fe;--bad:#b91c1c;--ok:#047857}
+  @media (prefers-color-scheme:dark){:root{--bg:#0b1220;--card:#111a2e;--ink:#e5e7eb;--muted:#94a3b8;--line:#22304d;--acc:#38bdf8;--acc2:#0c2a40;--bad:#f87171;--ok:#34d399}}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  body{display:flex;flex-direction:column;padding:max(12px,env(safe-area-inset-top)) 16px max(12px,env(safe-area-inset-bottom))}
+  h1{font-size:18px;margin:2px 0 2px}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 10px}
+  .to{font-size:13px;color:var(--muted);margin:0 0 8px;word-break:break-all}
+  .to b{color:var(--ink)}
+  .to input{width:100%;font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);margin-top:4px}
+  .pad{position:relative;flex:1;min-height:220px;background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden;touch-action:none}
+  .pad canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+  .base{position:absolute;left:8%;right:8%;bottom:28%;border-bottom:1.5px dashed var(--line);pointer-events:none}
+  .x{position:absolute;left:8%;bottom:calc(28% + 4px);color:var(--muted);font-size:22px;pointer-events:none}
+  .hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:15px;pointer-events:none;text-align:center;padding:0 24px}
+  .row{display:flex;gap:8px;margin-top:10px}
+  button{font:inherit;font-size:15px;font-weight:600;border-radius:12px;padding:13px 14px;border:1px solid var(--line);background:var(--card);color:var(--ink);flex:1;min-height:48px}
+  button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+  @media (prefers-color-scheme:dark){button.pri{color:#04121f}}
+  button:disabled{opacity:.45}
+  .more{display:flex;gap:8px;margin-top:8px}
+  .more button{font-weight:500;font-size:14px;min-height:42px;padding:9px 10px}
+  .msg{min-height:20px;font-size:13px;margin-top:8px;color:var(--muted)}
+  .msg.bad{color:var(--bad)}.msg.ok{color:var(--ok)}
+  @media (orientation:landscape) and (max-height:500px){body{padding-top:8px}.sub,.to{display:none}h1{font-size:15px}}
+</style>
+</head>
+<body>
+<h1 id="t-title">Sign here</h1>
+<p class="sub" id="t-sub">Use your finger. Tip: turn your phone sideways for more room.</p>
+<div class="to" id="to-box"></div>
+<div class="pad" id="pad">
+  <div class="base"></div><div class="x">×</div>
+  <div class="hint" id="hint">Sign inside the box</div>
+  <canvas id="cv"></canvas>
+</div>
+<div class="row">
+  <button id="b-clear" type="button">Clear</button>
+  <button id="b-undo" type="button">Undo</button>
+  <button id="b-send" type="button" class="pri" disabled>Send by email</button>
+</div>
+<div class="more">
+  <button id="b-img" type="button" disabled>Share as image</button>
+  <button id="b-copy" type="button" disabled>Copy code</button>
+</div>
+<div class="msg" id="msg"></div>
+<script>
+(function(){
+'use strict';
+// ── Signature page. Everything happens on this phone: nothing is uploaded anywhere. ──
+// The QR opens  index.html?to=<email>&id=<code>[&lang=es]
+// "Send by email" opens the phone's mail app with the signature encoded as text (format: FORMAT.md).
+var Q=new URLSearchParams(location.search);
+var ES=(Q.get('lang')||navigator.language||'').toLowerCase().indexOf('es')===0;
+var T=ES?{title:'Firma aquí',sub:'Usa el dedo. Consejo: pon el teléfono de lado para tener más espacio.',hint:'Firma dentro del recuadro',
+  clear:'Borrar',undo:'Deshacer',send:'Enviar por correo',img:'Compartir imagen',copy:'Copiar código',to:'Se envía a: ',
+  toAsk:'Escribe tu correo (el mismo de tu Outlook):',empty:'Primero firma.',noTo:'Falta el correo de destino.',
+  opened:'Se abrió tu correo: dale Enviar. Si no se abrió, usa «Compartir imagen» o «Copiar código».',
+  copied:'Código copiado. Pégalo en un correo a tu propia dirección con el asunto: ',noShare:'Este teléfono no deja compartir imágenes desde el navegador. Usa «Enviar por correo».',
+  big:'La firma es muy larga para un correo. Bórrala y fírmala un poco más simple.',subj:'Firma'}
+ :{title:'Sign here',sub:'Use your finger. Tip: turn your phone sideways for more room.',hint:'Sign inside the box',
+  clear:'Clear',undo:'Undo',send:'Send by email',img:'Share as image',copy:'Copy code',to:'Sends to: ',
+  toAsk:'Type your email (the same as your Outlook):',empty:'Sign first.',noTo:'The destination email is missing.',
+  opened:'Your mail app opened: tap Send. If it did not open, use "Share as image" or "Copy code".',
+  copied:'Code copied. Paste it into an email to yourself with the subject: ',noShare:'This phone does not allow sharing images from the browser. Use "Send by email".',
+  big:'The signature is too long for an email. Clear it and sign a bit simpler.',subj:'Signature'};
+document.documentElement.lang=ES?'es':'en';
+function $(i){return document.getElementById(i);}
+$('t-title').textContent=T.title;$('t-sub').textContent=T.sub;$('hint').textContent=T.hint;
+$('b-clear').textContent=T.clear;$('b-undo').textContent=T.undo;$('b-send').textContent=T.send;$('b-img').textContent=T.img;$('b-copy').textContent=T.copy;
+
+// Destination and id come only from the QR. An id is optional; without one a random one is made so CAP can still match it.
+var EMAIL_RX=/^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[A-Za-z]{2,}$/;
+var to=(Q.get('to')||'').trim();if(!EMAIL_RX.test(to))to='';
+var id=(Q.get('id')||'').replace(/[^A-Za-z0-9_-]/g,'').slice(0,40);
+if(!id){var r=new Uint8Array(6);crypto.getRandomValues(r);id=Array.prototype.map.call(r,function(b){return('0'+b.toString(16)).slice(-2);}).join('');}
+var toBox=$('to-box');
+if(to){toBox.innerHTML='';toBox.appendChild(document.createTextNode(T.to));var bb=document.createElement('b');bb.textContent=to;toBox.appendChild(bb);}
+else{toBox.textContent=T.toAsk;var inp=document.createElement('input');inp.type='email';inp.autocomplete='email';inp.inputMode='email';inp.id='to-in';
+  inp.addEventListener('input',function(){var v=inp.value.trim();to=EMAIL_RX.test(v)?v:'';upd();});toBox.appendChild(inp);}
+
+var cv=$('cv'),pad=$('pad'),ctx=cv.getContext('2d');
+var strokes=[],cur=null,W=0,H=0,dpr=1;
+function ink(){return getComputedStyle(document.documentElement).getPropertyValue('--ink').trim()||'#0f172a';}
+function resize(){
+  // Strokes are kept in a resolution-free 0..1 space, so rotating the phone or resizing never distorts them.
+  var r=pad.getBoundingClientRect();dpr=Math.max(1,Math.min(3,window.devicePixelRatio||1));
+  W=r.width;H=r.height;cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);redraw();
+}
+function seg(c,a,b,w){c.lineWidth=w;c.beginPath();c.moveTo(a[0],a[1]);c.lineTo(b[0],b[1]);c.stroke();}
+function drawStroke(c,s,sx,sy,w,color){
+  c.strokeStyle=color;c.fillStyle=color;c.lineCap='round';c.lineJoin='round';
+  if(s.length===1){c.beginPath();c.arc(s[0][0]*sx,s[0][1]*sy,w/2,0,Math.PI*2);c.fill();return;}
+  c.lineWidth=w;c.beginPath();c.moveTo(s[0][0]*sx,s[0][1]*sy);
+  for(var i=1;i<s.length-1;i++){var mx=(s[i][0]+s[i+1][0])/2*sx,my=(s[i][1]+s[i+1][1])/2*sy;c.quadraticCurveTo(s[i][0]*sx,s[i][1]*sy,mx,my);}
+  var l=s[s.length-1];c.lineTo(l[0]*sx,l[1]*sy);c.stroke();
+}
+function redraw(){ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,cv.width,cv.height);var col=ink(),w=2.6*dpr;
+  for(var i=0;i<strokes.length;i++)drawStroke(ctx,strokes[i],cv.width,cv.height,w,col);
+  if(cur)drawStroke(ctx,cur,cv.width,cv.height,w,col);}
+function pt(e){var r=cv.getBoundingClientRect();return[Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)),Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))];}
+cv.addEventListener('pointerdown',function(e){e.preventDefault();try{cv.setPointerCapture(e.pointerId);}catch(_){ }cur=[pt(e)];$('hint').style.display='none';redraw();});
+cv.addEventListener('pointermove',function(e){if(!cur)return;e.preventDefault();
+  var ev=e.getCoalescedEvents?e.getCoalescedEvents():[e];for(var i=0;i<ev.length;i++)cur.push(pt(ev[i]));redraw();});
+function end(e){if(!cur)return;if(e)e.preventDefault();strokes.push(cur);cur=null;redraw();upd();}
+cv.addEventListener('pointerup',end);cv.addEventListener('pointercancel',end);cv.addEventListener('lostpointercapture',function(){end();});
+document.addEventListener('touchmove',function(e){if(cur)e.preventDefault();},{passive:false});
+window.addEventListener('resize',resize);window.addEventListener('orientationchange',function(){setTimeout(resize,250);});
+try{matchMedia('(prefers-color-scheme: dark)').addEventListener('change',redraw);}catch(_){}
+
+function say(t,k){var m=$('msg');m.textContent=t||'';m.className='msg'+(k?' '+k:'');}
+function upd(){var has=strokes.length>0;$('b-send').disabled=!has||!to;$('b-img').disabled=!has;$('b-copy').disabled=!has;$('b-undo').disabled=!has;$('b-clear').disabled=!has;}
+$('b-clear').onclick=function(){strokes=[];cur=null;$('hint').style.display='';redraw();upd();say('');};
+$('b-undo').onclick=function(){strokes.pop();if(!strokes.length)$('hint').style.display='';redraw();upd();say('');};
+
+// ── Encoding (see FORMAT.md). Integer grid: the longest side of the box = 1000. ──
+function rdp(p,eps){if(p.length<3)return p.slice();var a=p[0],b=p[p.length-1],dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy)||1,mi=0,md=0;
+  for(var i=1;i<p.length-1;i++){var d=Math.abs(dy*p[i][0]-dx*p[i][1]+b[0]*a[1]-b[1]*a[0])/L;if(d>md){md=d;mi=i;}}
+  if(md<=eps)return[a,b];return rdp(p.slice(0,mi+1),eps).slice(0,-1).concat(rdp(p.slice(mi),eps));}
+function varint(out,n){while(n>127){out.push((n&127)|128);n>>>=7;}out.push(n);}
+function zz(n){return n>=0?n*2:-n*2-1;}
+function crc32(bytes){var c,t=crc32.t;if(!t){t=crc32.t=[];for(var n=0;n<256;n++){c=n;for(var k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0;}}
+  var x=0xFFFFFFFF;for(var i=0;i<bytes.length;i++)x=t[(x^bytes[i])&255]^(x>>>8);return((x^0xFFFFFFFF)>>>0).toString(16).padStart(8,'0');}
+function b64u(bytes){var s='';for(var i=0;i<bytes.length;i++)s+=String.fromCharCode(bytes[i]);return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
+function encode(eps){
+  var big=Math.max(W,H)||1,GW=Math.max(1,Math.round(1000*W/big)),GH=Math.max(1,Math.round(1000*H/big));
+  var out=[1],np=0;varint(out,GW);varint(out,GH);varint(out,strokes.length);
+  for(var s=0;s<strokes.length;s++){
+    var p=strokes[s].map(function(q){return[Math.round(q[0]*GW),Math.round(q[1]*GH)];});
+    var d=[p[0]];for(var i=1;i<p.length;i++)if(p[i][0]!==d[d.length-1][0]||p[i][1]!==d[d.length-1][1])d.push(p[i]);
+    d=rdp(d,eps);varint(out,d.length);np+=d.length;var px=0,py=0;
+    for(var j=0;j<d.length;j++){varint(out,zz(d[j][0]-px));varint(out,zz(d[j][1]-py));px=d[j][0];py=d[j][1];}
+  }
+  return{bytes:out,b64:b64u(out),crc:crc32(out),w:GW,h:GH,n:strokes.length,p:np};
+}
+function pack(){
+  // Smallest detail first; loosen only if the code would not fit in a mail link.
+  var eps=[0.6,1,1.5,2.2,3],e=null;
+  for(var i=0;i<eps.length;i++){e=encode(eps[i]);if(e.b64.length<=2400)break;}
+  if(e.b64.length>4000)return null;
+  var lines=[];for(var k=0;k<e.b64.length;k+=76)lines.push(e.b64.slice(k,k+76));
+  var body=['SIGN v1','id: '+id,'size: '+e.w+'x'+e.h,'strokes: '+e.n,'points: '+e.p,'length: '+e.b64.length,'crc32: '+e.crc,'data:'].concat(lines).concat(['end']).join('\n');
+  return{body:body,subject:T.subj+' SIGN-'+id,e:e};
+}
+$('b-send').onclick=function(){if(!strokes.length)return say(T.empty,'bad');if(!to)return say(T.noTo,'bad');
+  var p=pack();if(!p)return say(T.big,'bad');
+  location.href='mailto:'+encodeURIComponent(to).replace(/%40/g,'@')+'?subject='+encodeURIComponent(p.subject)+'&body='+encodeURIComponent(p.body);
+  say(T.opened,'ok');};
+$('b-copy').onclick=function(){if(!strokes.length)return say(T.empty,'bad');var p=pack();if(!p)return say(T.big,'bad');
+  var done=function(){say(T.copied+p.subject,'ok');};
+  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(p.body).then(done,function(){fallbackCopy(p.body);done();});else{fallbackCopy(p.body);done();}};
+function fallbackCopy(t){var a=document.createElement('textarea');a.value=t;a.style.position='fixed';a.style.opacity='0';document.body.appendChild(a);a.select();try{document.execCommand('copy');}catch(_){}document.body.removeChild(a);}
+// Transparent PNG, 3x, black ink, trimmed to the signature: for when the mail link does not work.
+function png(){
+  var minx=1,miny=1,maxx=0,maxy=0;strokes.forEach(function(s){s.forEach(function(q){minx=Math.min(minx,q[0]);miny=Math.min(miny,q[1]);maxx=Math.max(maxx,q[0]);maxy=Math.max(maxy,q[1]);});});
+  var sc=3,w=2.6*sc,padp=w*2,bw=Math.max(1,(maxx-minx)*W*sc),bh=Math.max(1,(maxy-miny)*H*sc);
+  var c=document.createElement('canvas');c.width=Math.ceil(bw+padp*2);c.height=Math.ceil(bh+padp*2);var x=c.getContext('2d');
+  strokes.forEach(function(s){drawStroke(x,s.map(function(q){return[(q[0]-minx)*W*sc+padp,(q[1]-miny)*H*sc+padp];}),1,1,w,'#000');});
+  return new Promise(function(res){c.toBlob(res,'image/png');});
+}
+$('b-img').onclick=function(){if(!strokes.length)return say(T.empty,'bad');
+  png().then(function(b){var f=new File([b],'signature-'+id+'.png',{type:'image/png'});
+    if(navigator.canShare&&navigator.canShare({files:[f]})){navigator.share({files:[f],title:T.subj+' SIGN-'+id}).catch(function(){});}
+    else say(T.noShare,'bad');});};
+window.__sig={encode:encode,pack:pack,set:function(s){strokes=s;redraw();upd();},size:function(){return[W,H];}};
+resize();upd();
+})();
+</script>
+</body>
+</html>
