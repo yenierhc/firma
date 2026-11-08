@@ -15,15 +15,14 @@ data:
 end
 ```
 
-Subject: `Signature SIGN-<id>` (Spanish: `Firma SIGN-<id>`). Search the mailbox for `SIGN-<id>`.
+Subject: `Signature SIGN-<id>`. Search the mailbox for `SIGN-<id>`.
 
 ## QR link
 
-`https://<user>.github.io/<repo>/?to=<email>&id=<id>[&lang=es]`
+`https://<user>.github.io/<repo>/?to=<email>&id=<id>`
 
 * `to`: where the email goes (the user's own Outlook address). If missing, the page asks for it.
 * `id`: letters, digits, `_` or `-`, up to 40. Use a fresh random id per request so the app can find *that* email.
-* `lang`: `es` for Spanish; otherwise the phone's language decides.
 
 ## data bytes
 
@@ -43,8 +42,3 @@ so draw them with smoothing. A stroke with one point is a dot.
 
 `decode_signature.py` is the reference decoder (`parse()` validates length and crc and tolerates `>` quoting and
 broken lines; `render_png()` makes a transparent, trimmed PNG with Pillow).
-
-## Fallbacks on the page
-
-* **Share as image**: shares a transparent PNG (3×, black ink, trimmed) through the phone's share sheet.
-* **Copy code**: copies the same text as the email body.
