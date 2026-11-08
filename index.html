@@ -17,10 +17,11 @@
   h1{font-size:18px;margin:2px 0 10px}
   .to{font-size:13px;color:var(--muted);margin:0 0 8px}
   .to input{width:100%;font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);margin-top:4px}
-  .pad{position:relative;flex:1;min-height:220px;background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden;touch-action:none}
+  .stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
+  .pad{position:relative;flex:none;background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden;touch-action:none}
   .pad canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
-  .base{position:absolute;left:8%;right:8%;bottom:28%;border-bottom:1.5px dashed var(--line);pointer-events:none}
-  .x{position:absolute;left:8%;bottom:calc(28% + 4px);color:var(--muted);font-size:22px;pointer-events:none}
+  .base{position:absolute;left:6%;right:6%;bottom:22%;border-bottom:1.5px dashed var(--line);pointer-events:none}
+  .x{position:absolute;left:6%;bottom:calc(22% + 4px);color:var(--muted);font-size:22px;pointer-events:none}
   .hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:15px;pointer-events:none;text-align:center;padding:0 24px}
   .row{display:flex;gap:8px;margin-top:10px}
   button{font:inherit;font-size:15px;font-weight:600;border-radius:12px;padding:13px 14px;border:1px solid var(--line);background:var(--card);color:var(--ink);flex:1;min-height:48px}
@@ -35,11 +36,11 @@
 <body>
 <h1>Sign below</h1>
 <div class="to" id="to-box"></div>
-<div class="pad" id="pad">
+<div class="stage" id="stage"><div class="pad" id="pad">
   <div class="base"></div><div class="x">×</div>
   <div class="hint" id="hint">Sign here</div>
   <canvas id="cv"></canvas>
-</div>
+</div></div>
 <div class="row">
   <button id="b-clear" type="button">Clear</button>
   <button id="b-send" type="button" class="pri" disabled>Send</button>
@@ -49,7 +50,7 @@
 (function(){
 'use strict';
 // ── Signature page. Everything happens on this phone: nothing is uploaded anywhere. ──
-// The QR opens  index.html?to=<email>&id=<code>
+// The QR opens  index.html?to=<email>&id=<code>[&ar=<width/height of the signature slot, default 3>]
 // "Send by email" opens the phone's mail app with the signature encoded as text (format: FORMAT.md).
 var Q=new URLSearchParams(location.search);
 var T={toAsk:'Your email:',empty:'Sign first.',noTo:'Enter your email.',opened:'Now tap Send in your mail app.',
@@ -65,13 +66,20 @@ var toBox=$('to-box');
 if(!to){toBox.textContent=T.toAsk;var inp=document.createElement('input');inp.type='email';inp.autocomplete='email';inp.inputMode='email';inp.id='to-in';
   inp.addEventListener('input',function(){var v=inp.value.trim();to=EMAIL_RX.test(v)?v:'';upd();});toBox.appendChild(inp);}
 
-var cv=$('cv'),pad=$('pad'),ctx=cv.getContext('2d');
+// FIXED SHAPE: the box always has the shape of the slot where the signature goes (width/height = AR), so every
+// signature arrives with the same proportions no matter the phone or how it is held. The app may pass ?ar=.
+var AR=parseFloat(Q.get('ar'));if(!(AR>=2&&AR<=6))AR=3;AR=Math.round(AR*100)/100;
+var cv=$('cv'),pad=$('pad'),stage=$('stage'),ctx=cv.getContext('2d');
 var strokes=[],cur=null,W=0,H=0,dpr=1;
 function ink(){return getComputedStyle(document.documentElement).getPropertyValue('--ink').trim()||'#0f172a';}
 function resize(){
   // Strokes are kept in a resolution-free 0..1 space, so rotating the phone or resizing never distorts them.
+  var sr=stage.getBoundingClientRect(),w=Math.min(sr.width,sr.height*AR);
+  pad.style.width=Math.floor(w)+'px';pad.style.height=Math.floor(w/AR)+'px';
   var r=pad.getBoundingClientRect();dpr=Math.max(1,Math.min(3,window.devicePixelRatio||1));
-  W=r.width;H=r.height;cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);redraw();
+  W=r.width;H=r.height;
+  // Too short to sign comfortably (phone upright): ask to turn it.
+  if(!strokes.length)$('hint').textContent=H<150?'Turn your phone sideways':'Sign here';cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);redraw();
 }
 function seg(c,a,b,w){c.lineWidth=w;c.beginPath();c.moveTo(a[0],a[1]);c.lineTo(b[0],b[1]);c.stroke();}
 function drawStroke(c,s,sx,sy,w,color){
@@ -98,7 +106,7 @@ function say(t,k){var m=$('msg');m.textContent=t||'';m.className='msg'+(k?' '+k:
 function upd(){var has=strokes.length>0;$('b-send').disabled=!has||!to;$('b-clear').disabled=!has;}
 $('b-clear').onclick=function(){strokes=[];cur=null;$('hint').style.display='';redraw();upd();say('');};
 
-// ── Encoding (see FORMAT.md). Integer grid: the longest side of the box = 1000. ──
+// ── Encoding (see FORMAT.md). Integer grid: 1000 wide, 1000/AR high. ──
 function rdp(p,eps){if(p.length<3)return p.slice();var a=p[0],b=p[p.length-1],dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy)||1,mi=0,md=0;
   for(var i=1;i<p.length-1;i++){var d=Math.abs(dy*p[i][0]-dx*p[i][1]+b[0]*a[1]-b[1]*a[0])/L;if(d>md){md=d;mi=i;}}
   if(md<=eps)return[a,b];return rdp(p.slice(0,mi+1),eps).slice(0,-1).concat(rdp(p.slice(mi),eps));}
@@ -108,7 +116,7 @@ function crc32(bytes){var c,t=crc32.t;if(!t){t=crc32.t=[];for(var n=0;n<256;n++)
   var x=0xFFFFFFFF;for(var i=0;i<bytes.length;i++)x=t[(x^bytes[i])&255]^(x>>>8);return((x^0xFFFFFFFF)>>>0).toString(16).padStart(8,'0');}
 function b64u(bytes){var s='';for(var i=0;i<bytes.length;i++)s+=String.fromCharCode(bytes[i]);return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
 function encode(eps){
-  var big=Math.max(W,H)||1,GW=Math.max(1,Math.round(1000*W/big)),GH=Math.max(1,Math.round(1000*H/big));
+  var GW=1000,GH=Math.round(1000/AR);
   var out=[1],np=0;varint(out,GW);varint(out,GH);varint(out,strokes.length);
   for(var s=0;s<strokes.length;s++){
     var p=strokes[s].map(function(q){return[Math.round(q[0]*GW),Math.round(q[1]*GH)];});
@@ -124,7 +132,7 @@ function pack(){
   for(var i=0;i<eps.length;i++){e=encode(eps[i]);if(e.b64.length<=2400)break;}
   if(e.b64.length>4000)return null;
   var lines=[];for(var k=0;k<e.b64.length;k+=76)lines.push(e.b64.slice(k,k+76));
-  var body=['SIGN v1','id: '+id,'size: '+e.w+'x'+e.h,'strokes: '+e.n,'points: '+e.p,'length: '+e.b64.length,'crc32: '+e.crc,'data:'].concat(lines).concat(['end']).join('\n');
+  var body=['SIGN v1','id: '+id,'size: '+e.w+'x'+e.h,'aspect: '+AR.toFixed(2),'strokes: '+e.n,'points: '+e.p,'length: '+e.b64.length,'crc32: '+e.crc,'data:'].concat(lines).concat(['end']).join('\n');
   return{body:body,subject:T.subj+' SIGN-'+id,e:e};
 }
 $('b-send').onclick=function(){if(!strokes.length)return say(T.empty,'bad');if(!to)return say(T.noTo,'bad');

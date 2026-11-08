@@ -5,7 +5,9 @@ Usage:
     python decode_signature.py email.txt              # only checks and prints the summary
 
 parse(text) -> dict(id, w, h, strokes=[[(x, y), ...], ...]) or raises ValueError.
-render_png(sig, path, height=360) draws a transparent PNG (black ink) trimmed to the signature.
+render_png(sig, path, width=1500) draws a transparent PNG (black ink) with a FIXED size: width x width/aspect
+    (aspect = the box shape sent by the page, 3 by default). The signature is scaled to fit inside with a small
+    margin and centered, so every signature comes out with the same dimensions.
 """
 import base64
 import re
@@ -70,7 +72,11 @@ def parse(text):
             y += unzz(varint())
             pts.append((x, y))
         strokes.append(pts)
-    return {"id": sig_id, "w": w, "h": h, "strokes": strokes}
+    try:
+        aspect = float(_field(block, "aspect") or 0) or (w / h if h else 3.0)
+    except ValueError:
+        aspect = w / h if h else 3.0
+    return {"id": sig_id, "w": w, "h": h, "aspect": aspect, "strokes": strokes}
 
 
 def _smooth(q, rounds=3):
@@ -86,40 +92,42 @@ def _smooth(q, rounds=3):
     return q
 
 
-def render_png(sig, path, height=360, ink=(0, 0, 0, 255)):
+def render_png(sig, path, width=1500, aspect=None, margin=0.06, ink=(0, 0, 0, 255)):
     from PIL import Image, ImageDraw  # Pillow
 
     pts = [p for s in sig["strokes"] for p in s]
     if not pts:
         raise ValueError("empty signature")
+    aspect = float(aspect or sig.get("aspect") or 3.0)
+    W, H = int(width), int(round(width / aspect))
     minx, maxx = min(p[0] for p in pts), max(p[0] for p in pts)
     miny, maxy = min(p[1] for p in pts), max(p[1] for p in pts)
     bw, bh = max(1, maxx - minx), max(1, maxy - miny)
     ss = 4                                   # draw 4x bigger, then shrink: smooth edges
-    k = height / bh * ss
-    lw = max(2, int(round(height * 0.022 * ss)))
-    padp = lw * 2
-    W, H = int(bw * k + padp * 2), int(bh * k + padp * 2)
-    im = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    lw = max(2, int(round(H * 0.018))) * ss  # stroke width follows the output height (9 px at 500 px)
+    m = margin * H * ss + lw
+    k = min((W * ss - 2 * m) / bw, (H * ss - 2 * m) / bh)
+    ox = (W * ss - bw * k) / 2 - minx * k
+    oy = (H * ss - bh * k) / 2 - miny * k
+    im = Image.new("RGBA", (W * ss, H * ss), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     for s in sig["strokes"]:
-        q = _smooth([((x - minx) * k + padp, (y - miny) * k + padp) for x, y in s])
-        if len(q) == 1:
-            x, y = q[0]
-            d.ellipse([x - lw / 2, y - lw / 2, x + lw / 2, y + lw / 2], fill=ink)
-            continue
-        d.line(q, fill=ink, width=lw, joint="curve")
-        for x, y in (q[0], q[-1]):
-            d.ellipse([x - lw / 2, y - lw / 2, x + lw / 2, y + lw / 2], fill=ink)
-    im = im.resize((max(1, W // ss), max(1, H // ss)), Image.LANCZOS)
-    im.save(path)
+        q = _smooth([(x * k + ox, y * k + oy) for x, y in s])
+        # Round pen: a disc at every point plus straight pieces between them. No seams at the joints.
+        r = lw / 2
+        for i, (x, y) in enumerate(q):
+            d.ellipse([x - r, y - r, x + r, y + r], fill=ink)
+            if i:
+                d.line([q[i - 1], (x, y)], fill=ink, width=lw)
+    im = im.resize((W, H), Image.LANCZOS)
+    im.save(path, dpi=(600, 600))
     return path
 
 
 if __name__ == "__main__":
     txt = open(sys.argv[1], encoding="utf-8", errors="replace").read()
     sig = parse(txt)
-    print("id=%s grid=%dx%d strokes=%d points=%d" % (sig["id"], sig["w"], sig["h"], len(sig["strokes"]),
+    print("id=%s grid=%dx%d aspect=%.2f strokes=%d points=%d" % (sig["id"], sig["w"], sig["h"], sig["aspect"], len(sig["strokes"]),
                                                      sum(len(s) for s in sig["strokes"])))
     if len(sys.argv) > 2:
         print("png:", render_png(sig, sys.argv[2]))
